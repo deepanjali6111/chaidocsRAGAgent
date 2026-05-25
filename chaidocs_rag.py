@@ -9,7 +9,8 @@ from langchain_core.documents import Document
 from langchain_community.document_loaders import SitemapLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
@@ -49,24 +50,23 @@ class ChaiDocsRAG:
             )
         ]
 
-    def load_docs(self) -> List[Document]:
-        try:
-            loader = SitemapLoader(
-                "https://docs.chaicode.com/sitemap.xml",
-                filter_urls=["docs.chaicode.com/youtube/"]
-            )
-            loader.requests_per_second = 1
-            docs = loader.load()
-            if docs:
-                logger.info(f"Loaded {len(docs)} documents from sitemap")
-                for doc in docs:
-                    doc.metadata["source_url"] = doc.metadata.get("source", "N/A")
-                return docs
-            logger.warning("Sitemap returned 0 documents, using fallback")
-        except Exception as e:
-            logger.error(f"Sitemap load failed: {str(e)}")
+   def load_docs(self) -> List[Document]:
+    try:
+        loader = SitemapLoader(
+            "https://docs.chaicode.com/sitemap.xml"
+        )
+        loader.requests_per_second = 1
+        docs = loader.load()
+        if docs:
+            logger.info(f"Loaded {len(docs)} documents from sitemap")
+            for doc in docs:
+                doc.metadata["source_url"] = doc.metadata.get("source", "N/A")
+            return docs
+        logger.warning("Sitemap returned 0 documents, using fallback")
+    except Exception as e:
+        logger.error(f"Sitemap load failed: {str(e)}")
 
-        return self.create_fallback_docs()
+    return self.create_fallback_docs()
 
     def process_docs(self):
         docs = self.load_docs()
