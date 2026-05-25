@@ -46,7 +46,7 @@ def debug_rag_issues():
         "https://docs.chaicode.com/youtube/chai-aur-c/operators/",
         "https://docs.chaicode.com/youtube/chai-aur-c/control-flow/",
         "https://docs.chaicode.com/youtube/chai-aur-c/loops/",
-        "https://docs.chaicode.com/youtube/chai-aur-c/functions/"
+        "https://docs.chaicode.com/youtube/chai-aur-c/functions/",
          "https://docs.chaicode.com/youtube/chai-aur-django/welcome/",
          "https://docs.chaicode.com/youtube/chai-aur-django/getting-started/",
          "https://docs.chaicode.com/youtube/chai-aur-django/jinja-templates/",
