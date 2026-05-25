@@ -2,7 +2,6 @@
 import os
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "DISABLED"
 os.environ["GOOGLE_CLOUD_PROJECT"] = ""
-os.environ["USER_AGENT"] = "ChaiDocsBot/1.0"
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 from typing import List
@@ -14,7 +13,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
-from google.generativeai import configure
 from dotenv import load_dotenv
 import logging
 
@@ -29,23 +27,20 @@ class ChaiDocsRAG:
         if not self.api_key:
             raise ValueError("Missing GEMINI_API_KEY in .env")
 
-        configure(api_key=self.api_key)
-
         self.vectorstore = None
         self.retriever = None
         self.chain = None
         self.docs_loaded = False
 
     def create_fallback_docs(self):
-        """Create some test documents if sitemap is not accessible"""
-        logger.info("Creating fallback test documents...")
-        fallback_docs = [
+        logger.info("Creating fallback documents...")
+        return [
             Document(
                 page_content="ChaiCode is a platform for learning programming. It offers YouTube tutorials and documentation for developers.",
                 metadata={"source_url": "fallback", "title": "ChaiCode Overview"}
             ),
             Document(
-                page_content="To get started with ChaiCode, visit the documentation website. You can find tutorials on Python, JavaScript, and web development.",
+                page_content="To get started with ChaiCode, visit the documentation website. You can find tutorials on HTML, Git, C, Django, SQL, and DevOps.",
                 metadata={"source_url": "fallback", "title": "Getting Started"}
             ),
             Document(
@@ -53,23 +48,21 @@ class ChaiDocsRAG:
                 metadata={"source_url": "fallback", "title": "Courses Overview"}
             )
         ]
-        return fallback_docs
 
     def load_docs(self) -> List[Document]:
         try:
             loader = SitemapLoader(
                 "https://docs.chaicode.com/sitemap.xml",
-                filter_urls=["https://docs.chaicode.com/youtube/"]
+                filter_urls=["docs.chaicode.com/youtube/"]
             )
             loader.requests_per_second = 1
             docs = loader.load()
             if docs:
-                logger.info(f"Successfully loaded {len(docs)} documents from sitemap")
+                logger.info(f"Loaded {len(docs)} documents from sitemap")
                 for doc in docs:
-                    if not hasattr(doc, 'metadata'):
-                        doc.metadata = {}
                     doc.metadata["source_url"] = doc.metadata.get("source", "N/A")
                 return docs
+            logger.warning("Sitemap returned 0 documents, using fallback")
         except Exception as e:
             logger.error(f"Sitemap load failed: {str(e)}")
 
@@ -84,38 +77,32 @@ class ChaiDocsRAG:
 
         logger.info(f"Processing {len(docs)} documents...")
 
-        text_splitter = RecursiveCharacterTextSplitter(
+        splits = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200
+        ).split_documents(docs)
+
+        logger.info(f"Created {len(splits)} chunks")
+
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/text-embedding-004",
+            google_api_key=self.api_key,
+            task_type="retrieval_document"
         )
-        splits = text_splitter.split_documents(docs)
 
-        logger.info(f"Created {len(splits)} document chunks")
+        self.vectorstore = Chroma.from_documents(
+            documents=splits,
+            embedding=embeddings,
+            persist_directory="./chroma_db"
+        )
 
-        try:
-            embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/text-embedding-004",
-                google_api_key=self.api_key,
-                task_type="retrieval_document"
-            )
+        self.retriever = self.vectorstore.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": 6}
+        )
 
-            self.vectorstore = Chroma.from_documents(
-                documents=splits,
-                embedding=embeddings,
-                persist_directory="./chroma_db"
-            )
-
-            self.retriever = self.vectorstore.as_retriever(
-                search_type="similarity",
-                search_kwargs={"k": 6}
-            )
-
-            self.docs_loaded = True
-            logger.info("✅ Documents processed and vectorstore created successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to create vectorstore: {str(e)}")
-            raise
+        self.docs_loaded = True
+        logger.info("Documents processed and vectorstore created successfully")
 
     def setup_chain(self):
         if not self.docs_loaded:
@@ -124,68 +111,44 @@ class ChaiDocsRAG:
 
         template = """You are a helpful assistant for ChaiCode documentation.
 
-        Based on the following context, answer the user's question. If the context doesn't contain relevant information, acknowledge what you don't know and provide any related information that might be helpful.
+Based on the following context, answer the user's question. If the context doesn't contain
+relevant information, say so clearly and share whatever related info might help.
 
-        Context:
-        {context}
+Context:
+{context}
 
-        Question: {question}
+Question: {question}
 
-        Please provide a helpful answer based on the available information. If you're unsure about something, say so clearly.
-
-        Format your response in markdown with sources when available."""
+Provide a helpful answer in markdown format with sources when available."""
 
         prompt = ChatPromptTemplate.from_template(template)
 
-        try:
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash",
-                temperature=0.1,
-                google_api_key=self.api_key
-            )
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
+            temperature=0.1,
+            google_api_key=self.api_key
+        )
 
-            self.chain = (
-                {"context": self.retriever | self.format_docs, "question": RunnablePassthrough()}
-                | prompt
-                | llm
-                | StrOutputParser()
-            )
+        self.chain = (
+            {"context": self.retriever | self.format_docs, "question": RunnablePassthrough()}
+            | prompt
+            | llm
+            | StrOutputParser()
+        )
 
-            logger.info("✅ Chain setup completed")
-
-        except Exception as e:
-            logger.error(f"Failed to setup chain: {str(e)}")
-            raise
+        logger.info("Chain setup completed")
 
     def format_docs(self, docs: List[Document]) -> str:
         if not docs:
-            return "No relevant documents found in the knowledge base."
+            return "No relevant documents found."
 
-        formatted_docs = []
+        formatted = []
         for i, doc in enumerate(docs):
-            if isinstance(doc, Document) and hasattr(doc, 'page_content'):
-                source = doc.metadata.get('source_url', 'Unknown source')
-                content = doc.page_content.strip()
-                formatted_docs.append(f"Document {i+1}:\n{content}\nSource: {source}")
+            source = doc.metadata.get("source_url", "Unknown")
+            formatted.append(f"Document {i+1}:\n{doc.page_content.strip()}\nSource: {source}")
 
-        result = "\n\n---\n\n".join(formatted_docs)
         logger.info(f"Formatted {len(docs)} documents for context")
-        return result
-
-    def test_retrieval(self, query: str):
-        """Test method to see what documents are being retrieved"""
-        if not self.retriever:
-            return "Retriever not initialized"
-
-        try:
-            docs = self.retriever.invoke(query)
-            logger.info(f"Retrieved {len(docs)} documents for query: '{query}'")
-            for i, doc in enumerate(docs):
-                logger.info(f"Doc {i+1}: {doc.page_content[:100]}...")
-            return docs
-        except Exception as e:
-            logger.error(f"Retrieval test failed: {str(e)}")
-            return []
+        return "\n\n---\n\n".join(formatted)
 
     def query(self, question: str) -> str:
         if not self.chain:
@@ -197,15 +160,9 @@ class ChaiDocsRAG:
                 logger.error(f"Failed to initialize RAG: {str(e)}")
                 return f"Failed to initialize the system: {str(e)}"
 
-        retrieved_docs = self.test_retrieval(question)
-        if not retrieved_docs:
-            logger.warning("No documents retrieved for the query")
-
         try:
             logger.info(f"Processing query: {question}")
-            response = self.chain.invoke(question.strip())
-            logger.info("Query processed successfully")
-            return response
+            return self.chain.invoke(question.strip())
         except Exception as e:
             logger.error(f"Query failed: {str(e)}")
             return f"Error processing your request: {str(e)}"
@@ -213,17 +170,6 @@ class ChaiDocsRAG:
 
 if __name__ == "__main__":
     rag = ChaiDocsRAG()
-
-    test_queries = [
-        "What is ChaiCode?",
-        "How do I get started?",
-        "What is Git?",
-        "Tell me about Django"
-    ]
-
-    for query in test_queries:
-        print(f"\n{'='*50}")
-        print(f"Query: {query}")
-        print(f"{'='*50}")
-        response = rag.query(query)
-        print(response)
+    for q in ["What is ChaiCode?", "How do I get started?", "What is Git?", "Tell me about Django"]:
+        print(f"\n{'='*50}\nQuery: {q}\n{'='*50}")
+        print(rag.query(q))
