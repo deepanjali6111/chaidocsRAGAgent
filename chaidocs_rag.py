@@ -22,9 +22,11 @@ logger = logging.getLogger(__name__)
 class ChaiDocsRAG:
     def __init__(self):
         load_dotenv()
-        self.api_key = os.getenv("GEMINI_API_KEY")
-        if not self.api_key:
-            raise ValueError("Missing GEMINI_API_KEY in .env")
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("Missing GEMINI_API_KEY or GOOGLE_API_KEY")
+        # langchain-google-genai 4.x reads GOOGLE_API_KEY from env
+        os.environ["GOOGLE_API_KEY"] = api_key
         self.vectorstore = None
         self.retriever = None
         self.chain = None
@@ -73,9 +75,9 @@ class ChaiDocsRAG:
             chunk_overlap=200
         ).split_documents(docs)
         logger.info(f"Created {len(splits)} chunks")
+        # gemini-embedding-001 is current stable model, no models/ prefix needed in 4.x
         embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/gemini-embedding-exp-03-07",
-            google_api_key=self.api_key
+            model="gemini-embedding-001"
         )
         self.vectorstore = Chroma.from_documents(
             documents=splits,
@@ -107,8 +109,7 @@ Provide a helpful answer in markdown format with sources when available."""
         prompt = ChatPromptTemplate.from_template(template)
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash",
-            temperature=0.1,
-            google_api_key=self.api_key
+            temperature=0.1
         )
         self.chain = (
             {"context": self.retriever | self.format_docs, "question": RunnablePassthrough()}
