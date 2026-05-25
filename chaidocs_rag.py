@@ -1,4 +1,5 @@
 import os
+import shutil
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "DISABLED"
 os.environ["GOOGLE_CLOUD_PROJECT"] = ""
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
@@ -25,7 +26,6 @@ class ChaiDocsRAG:
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("Missing GEMINI_API_KEY or GOOGLE_API_KEY")
-        # langchain-google-genai 4.x reads GOOGLE_API_KEY from env
         os.environ["GOOGLE_API_KEY"] = api_key
         self.vectorstore = None
         self.retriever = None
@@ -75,7 +75,12 @@ class ChaiDocsRAG:
             chunk_overlap=200
         ).split_documents(docs)
         logger.info(f"Created {len(splits)} chunks")
-        # gemini-embedding-001 is current stable model, no models/ prefix needed in 4.x
+
+        # Always clear old chroma_db to avoid dimension mismatch errors
+        if os.path.exists("./chroma_db"):
+            shutil.rmtree("./chroma_db")
+            logger.info("Cleared old chroma_db")
+
         embeddings = GoogleGenerativeAIEmbeddings(
             model="gemini-embedding-001"
         )
