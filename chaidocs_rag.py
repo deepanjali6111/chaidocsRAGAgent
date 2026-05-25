@@ -85,9 +85,9 @@ class ChaiDocsRAG:
         logger.info(f"Created {len(splits)} chunks")
 
         embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/text-embedding-004",
+            model="text-embedding-004",
             google_api_key=self.api_key,
-            task_type="retrieval_document"
+
         )
 
         self.vectorstore = Chroma.from_documents(
