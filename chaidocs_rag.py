@@ -177,7 +177,7 @@ class ChaiDocsRAG:
         
         try:
             embeddings = GoogleGenerativeAIEmbeddings(
-                model="text-embedding-004",
+                model="models/embedding-001",
                 google_api_key=self.api_key
             )
             
