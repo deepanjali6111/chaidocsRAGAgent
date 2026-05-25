@@ -73,10 +73,9 @@ class ChaiDocsRAG:
             chunk_overlap=200
         ).split_documents(docs)
         logger.info(f"Created {len(splits)} chunks")
-        embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004",
-        google_api_key=self.api_key,
-        client_options={"api_endpoint": "generativelanguage.googleapis.com"}
+       embeddings = GoogleGenerativeAIEmbeddings(
+    model="models/gemini-embedding-exp-03-07",
+    google_api_key=self.api_key
 )
         self.vectorstore = Chroma.from_documents(
             documents=splits,
