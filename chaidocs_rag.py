@@ -8,6 +8,7 @@ os.environ["ANONYMIZED_TELEMETRY"] = "False"
 from typing import List
 from langchain_core.documents import Document
 from langchain_community.document_loaders import WebBaseLoader
+ from langchain_community.document_loaders import SitemapLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
@@ -127,37 +128,22 @@ class ChaiDocsRAG:
         ]
         return fallback_docs
 
-    def load_docs(self) -> List[Document]:
-        # First check if URLs are accessible
-        fallback_docs = self.check_urls()
-        if fallback_docs:
-            return fallback_docs
-        
-        try:
-            loader = WebBaseLoader(
-                web_paths=self.docs_urls,
-                requests_per_second=1,
-                header_template={"User-Agent": os.getenv("USER_AGENT", "ChaiDocsBot/1.0")}
-            )
-            docs = loader.load()
-            
-            if not docs:
-                logger.warning("No documents loaded from URLs, using fallback")
-                return self.create_fallback_docs()
-            
-            logger.info(f"Successfully loaded {len(docs)} documents")
-            
-            for doc in docs:
-                if not hasattr(doc, 'metadata'):
-                    doc.metadata = {}
-                doc.metadata["source_url"] = doc.metadata.get("source", "N/A")
-                
-            return docs
-            
-        except Exception as e:
-            logger.error(f"Failed to load documents: {str(e)}")
-            return self.create_fallback_docs()
+  from langchain_community.document_loaders import SitemapLoader
 
+def load_docs(self):
+    try:
+        loader = SitemapLoader(
+            "https://docs.chaicode.com/sitemap.xml",
+            filter_urls=["https://docs.chaicode.com/youtube/"]
+        )
+        loader.requests_per_second = 1
+        docs = loader.load()
+        if docs:
+            return docs
+    except Exception as e:
+        logger.error(f"Sitemap load failed: {e}")
+    
+    return self.create_fallback_docs()
     def process_docs(self):
         docs = self.load_docs()
         
