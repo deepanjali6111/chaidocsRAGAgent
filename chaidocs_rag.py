@@ -1,6 +1,5 @@
 import os
 import json
-import shutil
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "DISABLED"
 os.environ["GOOGLE_CLOUD_PROJECT"] = ""
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
@@ -50,7 +49,6 @@ class ChaiDocsRAG:
         ]
 
     def load_docs(self) -> List[Document]:
-        # Load from pre-scraped JSON file
         json_path = os.path.join(os.path.dirname(__file__), "docs_data.json")
         try:
             with open(json_path, "r", encoding="utf-8") as f:
@@ -72,10 +70,26 @@ class ChaiDocsRAG:
         return self.create_fallback_docs()
 
     def process_docs(self):
+        # Reuse existing vectorstore if available to save embedding quota
+        if os.path.exists("./chroma_db"):
+            logger.info("Reusing existing chroma_db vectorstore")
+            embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+            self.vectorstore = Chroma(
+                persist_directory="./chroma_db",
+                embedding_function=embeddings
+            )
+            self.retriever = self.vectorstore.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k": 6}
+            )
+            self.docs_loaded = True
+            return
+
         docs = self.load_docs()
         if not docs:
             logger.error("No documents to process!")
             return
+
         logger.info(f"Processing {len(docs)} documents...")
         splits = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -83,13 +97,7 @@ class ChaiDocsRAG:
         ).split_documents(docs)
         logger.info(f"Created {len(splits)} chunks")
 
-        if os.path.exists("./chroma_db"):
-            shutil.rmtree("./chroma_db")
-            logger.info("Cleared old chroma_db")
-
-        embeddings = GoogleGenerativeAIEmbeddings(
-            model="gemini-embedding-001"
-        )
+        embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
         self.vectorstore = Chroma.from_documents(
             documents=splits,
             embedding=embeddings,
