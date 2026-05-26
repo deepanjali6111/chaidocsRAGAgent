@@ -1,4 +1,5 @@
 import os
+import json
 import shutil
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "DISABLED"
 os.environ["GOOGLE_CLOUD_PROJECT"] = ""
@@ -6,7 +7,6 @@ os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 from typing import List
 from langchain_core.documents import Document
-from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
@@ -15,57 +15,9 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
 import logging
-import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-DOCS_URLS = [
-    "https://docs.chaicode.com/youtube/getting-started/",
-    "https://docs.chaicode.com/youtube/chai-aur-html/welcome/",
-    "https://docs.chaicode.com/youtube/chai-aur-html/introduction/",
-    "https://docs.chaicode.com/youtube/chai-aur-html/emmit-crash-course/",
-    "https://docs.chaicode.com/youtube/chai-aur-html/html-tags/",
-    "https://docs.chaicode.com/youtube/chai-aur-git/welcome/",
-    "https://docs.chaicode.com/youtube/chai-aur-git/introduction/",
-    "https://docs.chaicode.com/youtube/chai-aur-git/terminology/",
-    "https://docs.chaicode.com/youtube/chai-aur-git/behind-the-scenes/",
-    "https://docs.chaicode.com/youtube/chai-aur-git/branches/",
-    "https://docs.chaicode.com/youtube/chai-aur-git/diff-stash-tags/",
-    "https://docs.chaicode.com/youtube/chai-aur-git/managing-history/",
-    "https://docs.chaicode.com/youtube/chai-aur-git/github/",
-    "https://docs.chaicode.com/youtube/chai-aur-c/welcome/",
-    "https://docs.chaicode.com/youtube/chai-aur-c/introduction/",
-    "https://docs.chaicode.com/youtube/chai-aur-c/hello-world/",
-    "https://docs.chaicode.com/youtube/chai-aur-c/variables-and-constants/",
-    "https://docs.chaicode.com/youtube/chai-aur-c/data-types/",
-    "https://docs.chaicode.com/youtube/chai-aur-c/operators/",
-    "https://docs.chaicode.com/youtube/chai-aur-c/control-flow/",
-    "https://docs.chaicode.com/youtube/chai-aur-c/loops/",
-    "https://docs.chaicode.com/youtube/chai-aur-c/functions/",
-    "https://docs.chaicode.com/youtube/chai-aur-django/welcome/",
-    "https://docs.chaicode.com/youtube/chai-aur-django/getting-started/",
-    "https://docs.chaicode.com/youtube/chai-aur-django/jinja-templates/",
-    "https://docs.chaicode.com/youtube/chai-aur-django/tailwind/",
-    "https://docs.chaicode.com/youtube/chai-aur-django/models/",
-    "https://docs.chaicode.com/youtube/chai-aur-django/relationships-and-forms/",
-    "https://docs.chaicode.com/youtube/chai-aur-sql/welcome/",
-    "https://docs.chaicode.com/youtube/chai-aur-sql/introduction/",
-    "https://docs.chaicode.com/youtube/chai-aur-sql/postgres/",
-    "https://docs.chaicode.com/youtube/chai-aur-sql/normalization/",
-    "https://docs.chaicode.com/youtube/chai-aur-sql/database-design-exercise/",
-    "https://docs.chaicode.com/youtube/chai-aur-sql/joins-and-keys/",
-    "https://docs.chaicode.com/youtube/chai-aur-sql/joins-exercise/",
-    "https://docs.chaicode.com/youtube/chai-aur-devops/welcome/",
-    "https://docs.chaicode.com/youtube/chai-aur-devops/setup-vpc/",
-    "https://docs.chaicode.com/youtube/chai-aur-devops/setup-nginx/",
-    "https://docs.chaicode.com/youtube/chai-aur-devops/nginx-rate-limiting/",
-    "https://docs.chaicode.com/youtube/chai-aur-devops/nginx-ssl-setup/",
-    "https://docs.chaicode.com/youtube/chai-aur-devops/node-nginx-vps/",
-    "https://docs.chaicode.com/youtube/chai-aur-devops/postgresql-docker/",
-    "https://docs.chaicode.com/youtube/chai-aur-devops/postgresql-vps/",
-    "https://docs.chaicode.com/youtube/chai-aur-devops/node-logger/",
-]
 
 
 class ChaiDocsRAG:
@@ -98,39 +50,25 @@ class ChaiDocsRAG:
         ]
 
     def load_docs(self) -> List[Document]:
+        # Load from pre-scraped JSON file
+        json_path = os.path.join(os.path.dirname(__file__), "docs_data.json")
         try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            # Filter only accessible URLs
-            accessible = []
-            for url in DOCS_URLS:
-                try:
-                    r = requests.get(url, headers=headers, timeout=10)
-                    if r.status_code == 200:
-                        accessible.append(url)
-                except Exception:
-                    pass
-
-            if not accessible:
-                logger.warning("No accessible URLs, using fallback")
-                return self.create_fallback_docs()
-
-            logger.info(f"Found {len(accessible)} accessible URLs")
-            loader = WebBaseLoader(
-                web_paths=accessible,
-                requests_per_second=2,
-                header_template=headers
-            )
-            docs = loader.load()
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            docs = []
+            for item in data:
+                if item.get("content"):
+                    docs.append(Document(
+                        page_content=item["content"],
+                        metadata={"source_url": item["url"]}
+                    ))
             if docs:
-                logger.info(f"Loaded {len(docs)} documents")
-                for doc in docs:
-                    doc.metadata["source_url"] = doc.metadata.get("source", "N/A")
+                logger.info(f"Loaded {len(docs)} documents from docs_data.json")
                 return docs
+        except FileNotFoundError:
+            logger.error("docs_data.json not found!")
         except Exception as e:
-            logger.error(f"Failed to load docs: {str(e)}")
-
+            logger.error(f"Failed to load docs_data.json: {str(e)}")
         return self.create_fallback_docs()
 
     def process_docs(self):
