@@ -1,0 +1,12 @@
+.env
+.env/*
+__pycache__/
+*.pyc
+venv/
+.venv/
+myenv/
+chroma_db/
+.vscode/
+.idea/
+.DS_Store
+.streamlit/secrets.toml
