@@ -8,7 +8,8 @@ from typing import List
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
@@ -30,6 +31,10 @@ class ChaiDocsRAG:
         self.retriever = None
         self.chain = None
         self.docs_loaded = False
+        # HuggingFace embeddings — runs locally, no API quota
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2"
+        )
 
     def create_fallback_docs(self):
         logger.info("Creating fallback documents...")
@@ -64,26 +69,29 @@ class ChaiDocsRAG:
                 logger.info(f"Loaded {len(docs)} documents from docs_data.json")
                 return docs
         except FileNotFoundError:
-            logger.error("docs_data.json not found!")
+            logger.warning("docs_data.json not found, using fallback docs")
         except Exception as e:
             logger.error(f"Failed to load docs_data.json: {str(e)}")
         return self.create_fallback_docs()
 
     def process_docs(self):
-        # Reuse existing vectorstore if available to save embedding quota
+        # Reuse existing vectorstore to skip re-embedding
         if os.path.exists("./chroma_db"):
             logger.info("Reusing existing chroma_db vectorstore")
-            embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
-            self.vectorstore = Chroma(
-                persist_directory="./chroma_db",
-                embedding_function=embeddings
-            )
-            self.retriever = self.vectorstore.as_retriever(
-                search_type="similarity",
-                search_kwargs={"k": 6}
-            )
-            self.docs_loaded = True
-            return
+            try:
+                self.vectorstore = Chroma(
+                    persist_directory="./chroma_db",
+                    embedding_function=self.embeddings
+                )
+                self.retriever = self.vectorstore.as_retriever(
+                    search_type="similarity",
+                    search_kwargs={"k": 6}
+                )
+                self.docs_loaded = True
+                logger.info("Loaded existing vectorstore successfully")
+                return
+            except Exception as e:
+                logger.warning(f"Could not reuse vectorstore: {str(e)}, rebuilding...")
 
         docs = self.load_docs()
         if not docs:
@@ -97,10 +105,10 @@ class ChaiDocsRAG:
         ).split_documents(docs)
         logger.info(f"Created {len(splits)} chunks")
 
-        embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+        # Embed locally using HuggingFace — no API quota needed
         self.vectorstore = Chroma.from_documents(
             documents=splits,
-            embedding=embeddings,
+            embedding=self.embeddings,
             persist_directory="./chroma_db"
         )
         self.retriever = self.vectorstore.as_retriever(
@@ -114,6 +122,7 @@ class ChaiDocsRAG:
         if not self.docs_loaded:
             logger.error("Documents not loaded! Call process_docs() first.")
             return
+
         template = """You are a helpful assistant for ChaiCode documentation.
 
 Based on the following context, answer the user's question. If the context does not contain
@@ -125,11 +134,14 @@ Context:
 Question: {question}
 
 Provide a helpful answer in markdown format with sources when available."""
+
         prompt = ChatPromptTemplate.from_template(template)
+
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash",
             temperature=0.1
         )
+
         self.chain = (
             {"context": self.retriever | self.format_docs, "question": RunnablePassthrough()}
             | prompt
@@ -144,7 +156,9 @@ Provide a helpful answer in markdown format with sources when available."""
         formatted = []
         for i, doc in enumerate(docs):
             source = doc.metadata.get("source_url", "Unknown")
-            formatted.append(f"Document {i+1}:\n{doc.page_content.strip()}\nSource: {source}")
+            formatted.append(
+                f"Document {i+1}:\n{doc.page_content.strip()}\nSource: {source}"
+            )
         logger.info(f"Formatted {len(docs)} documents for context")
         return "\n\n---\n\n".join(formatted)
 
