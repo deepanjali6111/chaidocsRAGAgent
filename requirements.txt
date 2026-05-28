@@ -16,3 +16,4 @@ requests>=2.31.0
 lxml>=4.9.0
 sentence-transformers>=2.2.0
 huggingface-hub>=0.20.0
+protobuf==3.20.3
