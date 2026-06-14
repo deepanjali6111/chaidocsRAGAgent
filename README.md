@@ -2,8 +2,7 @@
 
 A production-ready **Retrieval-Augmented Generation (RAG)** system that answers questions about [ChaiCode](https://chaicode.com) documentation in natural language.
 
-**Live Demo:** [chaidocsragagent.streamlit.app](https://chaidocsragagent.streamlit.app)
-
+**Live Demo:** https://chaidocsragagent-fjfmcht7kylcm3ti3qpvln.streamlit.app/
 ---
 
 ## What Problem Does This Solve?
