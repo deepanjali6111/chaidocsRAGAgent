@@ -138,7 +138,7 @@ Provide a helpful answer in markdown format with sources when available."""
         prompt = ChatPromptTemplate.from_template(template)
 
         llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
+            model="gemini-1.5-flash",
             temperature=0.1
         )
 
